@@ -1,94 +1,239 @@
-// I'll write some stuff up to help myself learn, dont mind it
-
+// I'll still write some stuff up to help myself learn
 
 
 
 // #include literally means copy file and paste it here
-#include <iostream> 
+
+#include <iostream>
 // Default c++ library which includes cout and cin
+#include <fstream>
+// Filestream, tools to make and write files
 #include <cuda_runtime.h>
 // This includes CUDA-functions like cudaMalloc, cudaMemcpy and cudaFree
 
 
+// function to save image
 
-// This is a gpu function (kernel)
-// It will not yet calculate mandelbrot, just test the memory
+// This function creates a simple PGM format picture
+// PGM is a format which only has numbers after another
+void savePGM(const int* data, int width, int height, const char* filename) {
+    // void is the return type, "empty"
+    // savePGM is the name, "portable gray map"
+    // const means constant, a value that cannot be changed
+    // int* is a pointer to the whole number table
+    // int width, int height, size of image in pixels
+    // const char* is a pointer to start of the characters
 
 
-// global tells to execute with gpu but called with cpu
-// void means no return type
-// float is a float, * means a pointer, it will not include the number but an adress to memory
-// d_data is a variable name, d_ means device which reminds it will be on gpu
-// int_n will tell how many numbers are there in the table
 
-__global__ void testKernel(float* d_data, int n) {
-    int idx = threadIdx.x + blockIdx.x * blockDim.x;
-    // int idx creates a variable for index
-    // threadIdx.x is "my number" in this group meaning if there's 32 threads in the group this will be a number between 0-31
-    // blockIdx.x is the number of the group, we only have one group so this will be 0
-    // blockDim.x is the size of one group
+    std::ofstream file(filename);
+    // std means standard namespace, default cpp library
+    // ofstream, output filestream
 
-    // So the equation (group number * group size) + my number in group is unique global id for each thread in the whole gpu
 
-    if (idx < n) {
-        // To check if we accidentally power 1000 threads but fit only 32, 33-999 would be tried to be writen outside memory, not good
-        d_data[idx] = (float)idx; 
-        // Go to d_data idx, change the value to idx which is float type
+    
+    file << "P2\n" << width << " " << height << "\n255\n";
+    // file << starts writing to file
+    // this part is to make computer realize that PGM is not text but image
+    // P2 means this is pgm, ASCII
+
+
+    
+    for (int i = 0; i < width * height; i++) {
+        // start from 0, until all pixels are ran trough, i++ go to next pixel
+        
+        int pixel_value = data[i] % 255; 
+        // searches the pixel value for i from data
+        // % 255 is modulo, because pgm only understands 0-255
+        
+        file << pixel_value << " ";
+        // writes the value to file
+
+        if ((i + 1) % width == 0) file << "\n";
+        // makes it easier to read for human eye
     }
+    
+
+
+    file.close();
+    // closes the file writing pipe, frees the file
+
+    std::cout << "Kuva tallennettu: " << filename << std::endl;
+}   // Tell the user
+
+
+
+
+
+
+
+// Time for the heavy stuff
+__global__ void mandelbrotKernel(int* d_output, int width, int height, 
+                                 float x_min, float x_max, float y_min, float y_max, 
+                                 int max_iter) {
+    // global is function specifier in CUDA, it means called from cpu but ran on gpu
+    // void we know
+    // gpu threads cannot return stuff normally, but rather write it to memory
+
+    // int* d_outputs means it points into VRAM to data outputs, (which we will reserve with cudamalloc)
+    // this is where each thread will write their value
+    // those are just parameters which we will calculate
+    
+    int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    // create variable idx
+    // calculates global id for thread, not just group block etc
+
+    
+
+    if (idx >= width * height) return;
+    // if thread is outside zone, stop                                    
+
+
+
+    // Coordinate change
+    int px = idx % width; // column
+    int py = idx / width; // row, in Cpp / doesnt count decimals
+
+
+
+    // Scaling
+    // calculating "size" of pixel
+    float dx = (x_max - x_min) / width;
+    float dy = (y_max - y_min) / height;
+
+    // calculating complexity
+    float cr = x_min + px * dx; // real part
+    float ci = y_min + py * dy; // imaginary part
+
+
+
+    // Mandelbrot iteration
+    // begin from zero, make the variables
+    float zr = 0.0f;
+    float zi = 0.0f;
+    int iter = 0;
+
+
+
+    // Run the loop until max iteration or |z| > 2, (mandelbrot)
+    while (iter < max_iter) {
+
+
+        // calculate exponent (faster than sqrt)
+        float zr2 = zr * zr;
+        float zi2 = zi * zi;
+
+        // is |z| > 2 ?
+        if (zr2 + zi2 > 4.0f) {
+            break; // Karkasi!
+        }
+
+        
+
+        // Calculating z_{n+1} = z_n^2 + c
+        zi = 2.0f * zr * zi + ci;
+        // the imaginary part (after opening brackets)
+        zr = zr2 - zi2 + cr;
+        // real
+
+        iter++;
+        // iter = iter + 1
+    }
+
+
+
+    d_output[idx] = iter;
+    //now iter tells us how many iterations it survived, and saves it gpu, where idx points
 }
 
-// int return 0 to OS if all went well, else there is an error
+
+
+
+
+// Time for the main stuff
 int main() {
-    int n = 32;
-    size_t bytes = n * sizeof(float);
-    // size_t "Size type" is a special kind of integer, which is decided to represent memory size, it is positive and big enough to cover RAM
-    // sizeof(float) is a function, which tells us how many bytes does one float take, usually 4, so bytes would be 32 * 4 = 128
-
-    // Reserve memory from host (CPU)
-    float* h_data = (float*)malloc(bytes);
-    // create a pointer named h_data (host_data)
-    // malloc(bytes) Memory ALLOCation. Reserves 128 bytes (or whatever) from memory, returns the pointer to the beginning of the 128 bytes
-    // malloc by itself returns a "generic pointer" (void*) which means it doesn't know what will be stored there, therefore we use (float*)
+    // returns intege
 
 
-    // Create pointer d_data (device_data) atp it is an empty pointer in CPU memory, which *can* include an adress.
-    float* d_data;
 
+    int width = 1024;
+    int height = 1024;
+    int max_iter = 1000;
+    // Size of image, max interations
+
+    // Defining the rectangle in complex space
+    // this is typical mandelbrot rectangle
+    float x_min = -2.5f;
+    float x_max = 1.0f;
+    float y_min = -1.2f;
+    float y_max = 1.2f;
+
+
+
+    // how much memory reserved
+    size_t bytes = width * height * sizeof(int);
+    // size_t "unsigned long long" 64 bit int with out sign in beginning
+    // sizeof is a function which asks: "how many bytes one int is taking up"
+    // calculates the size of one image (approx 4mb)
+
+
+
+    // Allocation
+    int* h_data = (int*)malloc(bytes); 
+    // int* h_data, when main is running, it has a small very fast working memory called stack
+    // h_data is a variable which is created to stack, it is a pointer
+    // malloc(bytes) allocates memory from 64GB ram and returns the pointer to start
+    // the (int*) tells the program that we are going to write only integers, also tells how to read the memory (int = 4 bytes)
+    
+    
+
+    // create variable for device_data (neccesary for cuda shii)
+    int* d_data;
     cudaMalloc(&d_data, bytes);
-    // cudaMalloc is nvidias malloc, it reserves space from VRAM (which I have 32gb of *skull*) BUT: it return error coding not the adress
-    // & means "adress of". We want cudamalloc to chagne d_data pointer number, right now it points to nothing or garbage
-    // If we gave it d_data, we would give it the garbage it points at, now we ar telling it; hey, there's the pointer (d_data) we want to change
-    // we want cudamalloc to go to d_data and change it
-
-    // <<< ... >>> is a CUDA expansion, first number is grid size, and second number is block size (how many threads)
-    // d_data and n are the arguments. NOTE, we are giving it d_data (gpu-pointer) not h_data because GPU could not access CPU's 
-    // testKernel is the function we created
-    // it will go to d_data idx and change value to the equation we did (float)
-    testKernel<<<1, 32>>>(d_data, n);
+    // cuda malloc reserves bytes amount of data of my 32gb VRAM trough a PCIe-line       
+    // &d_data tells the function, go write a pointer there
 
 
-    // Copying the result back to CPU
+
+    // Kernel starting parameters
+    int blockSize = 256;
+    // threads per block
+    
+    // Calculate how many blocks we need to cover the image, rounds it up if neccesary
+    int numBlocks = (width * height + blockSize - 1) / blockSize;
+
+    std::cout << "Starting Mandelbrot-calculation with RTX 5090..." << std::endl;
+    std::cout << "Resolution: " << width << "x" << height << std::endl;
+    std::cout << "Number of threads: " << numBlocks * blockSize << std::endl;
+    // std::endl; ends line and flushes
+
+
+
+    // EMBARASSINGLY PARELLEL
+    mandelbrotKernel<<<numBlocks, blockSize>>>(d_data, width, height, x_min, x_max, y_min, y_max, max_iter);
+    // << >> is CUDA and means create numblocks groups with blocksize threads
+    // then there's the parameters
+    
+
+
+    cudaDeviceSynchronize();
+    // Stops CPU, to sync with gpu
+
+
+
     cudaMemcpy(h_data, d_data, bytes, cudaMemcpyDeviceToHost);
-    // cudaMemcpy means transfering data trough PCIe, h_data is the pointer to destination, 
-    // d_data is the pointer of source, bytes is how much should we copy
-    // cudaMemcpyDeviceToHost just means direction, from device to host
+    // This is cuda for transfering data, where, from where, how much, direction
 
 
 
-    // 5. Checker
-    std::cout << "GPU wrote to memory: ";
-    // character output "print", << what to cout
+    savePGM(h_data, width, height, "mandelbrot.pgm");
+    // call for our helper function to save the data into the picture file
 
-    for (int i = 0; i < 10; i++) { // print first 10
-        std::cout << h_data[i] << " "; // read data from cpu memory from our h_data slot, which we had reserved and trasnfered the data to
-    }
-    std::cout << "..." << std::endl;
 
-    // Cleaning our VRAM
+    // Free memories IMPORTANT
     cudaFree(d_data);
-    // frees what we save, actually it knows how much to free from secret metadata which it saves (how many bytes)
     free(h_data);
 
     return 0;
-    // 0 means good
+    // stops the shii
 }
