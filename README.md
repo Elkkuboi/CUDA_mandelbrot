@@ -14,5 +14,7 @@ Requires Linux and the CUDA Toolkit (nvcc).
 ```bash
 make
 ./mandelbrot
+```
 
+### Example 
 ![Mandelbrot render](result.png)
