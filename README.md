@@ -16,5 +16,5 @@ make
 ./mandelbrot
 ```
 
-### Example 
+### Example result
 ![Mandelbrot render](result.png)
