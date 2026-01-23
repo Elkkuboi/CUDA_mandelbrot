@@ -1,4 +1,4 @@
-# CUDA_mandelbrot
+# CUDA_mandelbrot, EMBARRASSINGLY PARELLEL
 
 A straightforward Mandelbrot set renderer written in C++ and CUDA.
 
