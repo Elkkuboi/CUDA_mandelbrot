@@ -14,8 +14,8 @@
 
 // function to save image
 
-// This function creates a simple PGM format picture
-// PGM is a format which only has numbers after another
+// This function creates a simple PPM format picture
+// PPM (portable pixel map) is a format which only has numbers after another
 void savePGM(const int* data, int width, int height, const char* filename) {
     // void is the return type, "empty"
     // savePGM is the name, "portable gray map"
