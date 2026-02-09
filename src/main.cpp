@@ -164,7 +164,7 @@ int main(int argc, char* argv[]) {
                 
                 
             } else {
-                double t = (double)iter * 0.1;
+                double t = (double)iter * 0.01;
                 // make iter float
                 // 0.01 is just how fast colors change
 
